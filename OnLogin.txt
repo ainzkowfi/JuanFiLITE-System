@@ -1,12 +1,8 @@
 # HSFilePath for this repo: hAP lite = "hotspot" (hex/hAP-ax use "flash/hotspot").
 :local HSFilePath "hotspot";
-
-# --- # Get User Data -------------------------------------------------------
+# --- # Get User Data ---
 :local aUsrNote [/ip hotspot user get $user comment];
-
-# Clear the comment FIRST — a parse error below can no longer skip it.
 /ip hotspot user set [find name=$user] comment="";
-
 :local aUsrNote [:toarray $aUsrNote];
 :local iUsrTime 0;
 :local iSaleAmt 0;
@@ -18,12 +14,12 @@
   :set iExtCode ($aUsrNote->2);
   :set iVdoName ($aUsrNote->3);
 } on-error={};
-
 :local iTimeMin [/ip hotspot user get $user limit-uptime];
 :local iUserReg [/system scheduler find name=$user];
 
-# --- # Check User Data -----------------------------------------------------
-:if (($iTimeMin>0) and ($iUsrTime>=0) and (($iUserReg="") or ($iExtCode=1))) do={
+# --- # Check User Data ---
+# FIX: validity must be >0. expiry(>0) -> scheduler; non-expiry(0m) -> NO scheduler.
+:if (($iTimeMin>0) and ($iUsrTime>0) and (($iUserReg="") or ($iExtCode=1))) do={
   :local iFileMac;
   :local mac $"mac-address";
   :for i from=0 to=([:len $mac] - 1) do={
@@ -31,38 +27,35 @@
     :if ($chr = ":") do={ :set $chr "" }
     :set iFileMac ($iFileMac . $chr)
   }
-# --- # Extend User ---------------------------------------------------------
+  # --- # Extend User ---
   :if (($iUserReg!="") and ($iExtCode=1)) do={
     :local iTimeInt [/system scheduler get $user interval];
     :set iTimeInt ($iTimeInt+$iUsrTime);
-    # Use limit-uptime as a floor without re-adding iUsrTime (avoids over-extending scheduler vs portal/actual added time).
     :if ($iTimeMin>$iTimeInt) do={ :set iTimeInt $iTimeMin };
-    /system scheduler set $user interval=$iTimeInt;
+    # re-write start-date/start-time so next-run recomputes (interval alone won't move it)
+    :local sdBeg [/system scheduler get $user start-date];
+    :local stBeg [/system scheduler get $user start-time];
+    /system scheduler set $user interval=$iTimeInt start-date=$sdBeg start-time=$stBeg;
   }
-# --- # ADD User ------------------------------------------------------------
+  # --- # ADD User ---
   :local iDateBeg [/system clock get date];
   :local iTimeBeg [/system clock get time];
   :if ($iUserReg="") do={
     :local iTimeInt $iUsrTime;
     :if ($iTimeMin>$iUsrTime) do={ :set iTimeInt ($iTimeMin+$iUsrTime) };
-    # ponytail: the scheduler only removes the voucher, its session, its
-    # cookie, itself and the session file - read+write for the config, ftp
-    # for /file remove. It used to carry policy,password,sensitive,romon,
-    # reboot and sniff as well: `policy` alone reads every configured
-    # password in cleartext over the API, and this grant lives as long as
-    # the voucher does.
+    # scheduler removes the session, cookie, itself and the session file.
+    # "/ip hotspot user remove" is intentionally GONE -> voucher/code stays reusable.
     :do { /system scheduler add name="$user" interval=$iTimeInt \
       start-date=$iDateBeg start-time=$iTimeBeg disable=no \
       policy=ftp,read,write \
-      on-event=("/ip hotspot user remove [find name=$user];\r\n".\
-                "/ip hotspot active remove [find user=$user];\r\n".\
+      on-event=("/ip hotspot active remove [find user=$user];\r\n".\
                 "/ip hotspot cookie remove [find user=$user];\r\n".\
                 "/system scheduler remove [find name=$user];\r\n".\
                 ":do {/file remove \"$HSFilePath/data/$iFileMac.txt\"} on-error={};\r\n")
     } on-error={ log error "( $user ) /system scheduler add => ERROR ADD!" };
     :local x 10;:while (($x>0) and ([/system scheduler find name="$user"]="")) do={:set x ($x-1);:delay 1s};
   };
-# --- # Save Data File ------------------------------------------------------
+  # --- # Save Data File ---
   :if ([/file find name="$HSFilePath/data"]="") do={
     :do { /file print file=("$HSFilePath/data/.keep") where name="dummyfile" } on-error={};
     :local mkWait 3;
@@ -73,28 +66,12 @@
   :if ([/system scheduler find name=$user]!="") do={
     /file print file="$HSFilePath/data/$iFileMac.txt" where name="dummyfile";
     :local x 10;:while (($x>0) and ([/file find name="$HSFilePath/data/$iFileMac.txt"]="")) do={:set x ($x-1);:delay 1s};
-    # CHANGE vs upstream: upstream writes "$HSFilePath/data/$iFileMac" with no
-    # .txt extension, while the line above creates <mac>.txt. The set then
-    # targets a file that does not exist, errors out, and leaves the .txt
-    # empty. The portal reads that file, so an empty one looks exactly like a
-    # missing one. Same extension on both sides.
     /file set "$HSFilePath/data/$iFileMac.txt" contents="$user#$iValidUntil";
-    # ponytail: the log line is the only way to tell "file written" from
-    # "gate skipped" from "no scheduler". Delete once it has done its job.
-    :log info ("On-Login(" . $user . "): mac=[" . $iFileMac . "] dir=" . $HSFilePath . " time=[" . $iTimeMin . "] usr=[" . $iUsrTime . "] valid=[" . $iValidUntil . "]");
+    :log info ("On-Login(" . $user . "): mac=[" . $iFileMac . "] time=[" . $iTimeMin . "] usr=[" . $iUsrTime . "] valid=[" . $iValidUntil . "]");
   }
-# --- end of gate -----------------------------------------------------------
 };
 
-# --- # Session File for vouchers made outside the portal -------------------
-# CHANGE: a voucher created in Winbox has no comment array and no scheduler,
-# so the gate above never opens and data/<mac>.txt is never written. That file
-# is the only thing resumeSession() reads to decide whether to auto-reconnect,
-# so without it the portal asks for the code on every single visit. The clock
-# already runs from limit-uptime, so fall back to now + limit-uptime.
-# Only fires when there is no scheduler AND no file yet, so every coin path is
-# untouched. A top-up on a Winbox voucher opens the gate above instead, which
-# creates the scheduler and writes the file itself.
+# --- # Session file for non-expiry / Winbox-made vouchers (no scheduler) ---
 :if (($iTimeMin>0) and ($iUserReg="")) do={
   :local mac $"mac-address";
   :local macNoCol "";
