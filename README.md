@@ -10,7 +10,6 @@ Coinslot vendo firmware for **ESP8266 (NodeMCU)** plus the **MikroTik RouterOS v
 | --- | --- |
 | `JuanFi-nodemcu/` | ESP8266 firmware. Coin input, API calls to the router, admin UI, portal endpoints (`/topUp`, `/checkCoin`, `/useVoucher`, `/getRates`, `/convertVoucher`, `/cancelTopUp`). |
 | `hotspot/` | Portal files for the router's hotspot directory. Upload `settings.json` with them. |
-| `juanfi-setup.rsc` | RouterOS setup script. Creates the data dir, site-id, NTP, API service/user group, firewall exceptions, daily re-run. |
 | `OnLogin.txt` / `OnLogout.txt` | Hotspot **user profile** scripts. Paste into `default` -> Login / Logout tabs. |
 
 ```
