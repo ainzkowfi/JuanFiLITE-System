@@ -49,20 +49,7 @@ Copy the contents of `hotspot/` into the router's hotspot directory (`hotspot/` 
 
 Required `hotspot/data/` directory: the setup script creates it with a dummy file because RouterOS cannot create empty directories.
 
-## 1.3 Run the setup script
-
-Open `juanfi-setup.rsc`, adjust the two settings at the top (`PROF`, NTP servers if needed), paste into a WinBox terminal, run once. It is idempotent and it installs itself as a daily scheduler.
-
-What it does:
-
-1. Detects the hotspot directory by looking for `portal.html`.
-2. Creates `data/` and `data/site-id.txt` (router serial number). The portal scopes customer storage by this ID; a missing site-id means shared/incorrect voucher history per browser.
-3. Sets NTP + `Asia/Manila`. **Clock must be right**: voucher expiry, `next-run`, and the on-login scheduler all read it.
-4. Sets `login-by=http-chap,http-pap` and the `default` profile timeouts.
-5. Adds a forward filter rule that lets hotspot traffic to ports 80/443 bypass fasttrack, and moves it to the top. Without this, some boards fasttrack the portal and logins stall.
-6. Enables the API service on **8728**, creates user group `juanfi-api` with `api,read,write`, and adds an input accept for 8728 from `10.0.0.0/16`.
-
-## 1.4 API user for the coin box
+## 1.3 API user for the coin box
 
 ```rsc
 /user add name=juanfi group=juanfi-api password=<strong-password>
@@ -72,7 +59,7 @@ Enter exactly these credentials in the ESP admin page. Policy `api,read,write` i
 
 If the vendo lives on a different subnet than `10.0.0.0/16`, widen or replace the source of the `juanfi api from hotspots` firewall rule, otherwise the ESP cannot connect.
 
-## 1.5 On Login / On Logout
+## 1.4 On Login / On Logout
 
 **Location:** WinBox -> IP -> Hotspot -> User Profiles -> `default` -> Login tab (and Logout tab). Not Server Profiles.
 
@@ -89,7 +76,7 @@ Paste the whole file, including the `#` header lines. Both files end with a clos
 
 **Identifiers matter:** RouterOS rejects variable names that start with `_`. If you copy a script from anywhere and logins stop clearing comments, check `/system script` compile errors and the log for a silent abort.
 
-## 1.6 Verify the router side
+## 1.5 Verify the router side
 
 ```rsc
 /ip hotspot user print detail where comment!=""
